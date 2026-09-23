@@ -32,4 +32,6 @@ limit, store `gzip -c storageState.json | base64` as
 The workflow publishes a case-level evidence site under
 `https://deepcoldy.github.io/botmux-midscene/`. Every executed case links to
 its exact native Midscene step and includes the screenshot used by that node.
-The same links and thumbnails are written to the GitHub Actions Summary.
+The GitHub Actions Summary shows failed, not-run, and skipped cases first, with
+their available screenshots linking to exact report steps. Passed cases and
+their screenshots appear only in a collapsed appendix.

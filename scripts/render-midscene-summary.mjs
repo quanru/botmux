@@ -89,8 +89,22 @@ function mergeSummaries(summaries) {
 
 function cell(value) {
   return String(value ?? '')
+    .replaceAll('\\', '\\\\')
     .replaceAll('|', '\\|')
-    .replaceAll('\n', ' ');
+    .replaceAll('[', '\\[')
+    .replaceAll(']', '\\]')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll(/[\r\n]+/g, ' ');
+}
+
+function html(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 }
 
 function duration(value) {
@@ -122,7 +136,6 @@ export function renderSummary({
   skippedCases = [],
   evidenceCases = [],
 }) {
-  const counts = summary?.summary;
   const nativeCases = (summary?.projects ?? []).flatMap((project) =>
     (project.cases ?? []).map((testCase) => ({
       ...testCase,
@@ -144,13 +157,8 @@ export function renderSummary({
     .map((testCase) => ({ ...testCase, attempts: [] }));
   const cases = [...nativeCases, ...evidenceOnlyCases, ...skipped];
   const reportAvailable = Boolean(summary || evidenceCases.length > 0);
-  const total = (counts?.total ?? 0) + skipped.length + evidenceOnlyCases.length;
-  const passed = (counts?.passed ?? 0)
-    + evidenceOnlyCases.filter((testCase) => testCase.status === 'success').length;
-  const failed = (counts?.failed ?? 0)
-    + evidenceOnlyCases.filter((testCase) => testCase.status === 'failed').length;
-  const notRun = (counts?.notRun ?? 0)
-    + evidenceOnlyCases.filter((testCase) => testCase.status === 'not-run').length;
+  const abnormalCases = cases.filter((testCase) => testCase.status !== 'success');
+  const passedCases = cases.filter((testCase) => testCase.status === 'success');
   const status =
     testOutcome === 'success' &&
     summary?.status === 'success' &&
@@ -167,11 +175,35 @@ export function renderSummary({
   const evidence = new Map(
     evidenceCases.map((testCase) => [`${testCase.project}\0${testCase.name}`, testCase]),
   );
+  const unreportedFailure = status === 'failed' && abnormalCases.length === 0;
+  const needsAttention = abnormalCases.length + Number(unreportedFailure);
+  const allPassed =
+    status === 'passed' &&
+    feishuOutcome !== 'skipped' &&
+    passedCases.length > 0 &&
+    needsAttention === 0;
+  const caseRow = (testCase, detail) => {
+    const caseEvidence = evidence.get(`${testCase.project}\0${testCase.name}`);
+    const target = publishedUrl(pagesUrl, caseEvidence?.reportPath, caseEvidence?.stepId);
+    const preview = publishedUrl(pagesUrl, caseEvidence?.previewPath);
+    const fallback = !target && testCase.status !== 'skipped' ? artifactUrl : null;
+    const label = target || fallback
+      ? `[${cell(testCase.name)}](${target ?? fallback})`
+      : cell(testCase.name);
+    const screenshot = preview && target
+      ? `<a href="${html(target)}"><img src="${html(preview)}" alt="${
+        html(testCase.name).replaceAll('|', '&#124;').replaceAll(/[\r\n]+/g, ' ')
+      }" width="160"></a>`
+      : '—';
+    const elapsed = testCase.durationMs ?? caseEvidence?.durationMs
+      ?? testCase.attempts?.at(-1)?.durationMs;
+    return `| ${cell(testCase.project)} | ${label} | ${screenshot} | ${cell(detail)} | ${duration(elapsed)} |`;
+  };
   const lines = [
     `## Botmux × Midscene · ${status}`,
     '',
     reportAvailable
-      ? `**${passed}/${total} cases passed · ${failed} failed · ${skipped.length} skipped · ${notRun} not run**`
+      ? `**${allPassed ? '✅ ' : ''}${needsAttention} need attention · ${passedCases.length} passed**`
       : testOutcome === 'skipped'
         ? '**Static Midscene validation passed.** Live Feishu browser cases were skipped because their repository secrets are unavailable.'
         : '**No Midscene result was produced.** The job stopped before the test runner started.',
@@ -200,38 +232,48 @@ export function renderSummary({
     lines.push(`Feishu live project: **${cell(feishuOutcome)}**.`, '');
   }
 
-  if (cases.length > 0) {
+  if (needsAttention) {
     lines.push(
-      '| Case | Evidence | Project | Status | Attempts |',
+      '### Needs attention',
+      '',
+      '| Project | Case | Screenshot | Status / reason | Duration |',
       '|:--|:--|:--|:--|--:|',
-      ...cases.map((testCase) => {
-        const icon =
-          testCase.status === 'success'
-            ? '✅'
+      ...(unreportedFailure
+        ? [`| Workflow | — | — | ❌ Failed before report · [Workflow run](${runUrl}) | — |`]
+        : []),
+      ...abnormalCases
+        .sort((left, right) => {
+          const priority = (testCase) => testCase.status === 'failed' ? 0 : 1;
+          return priority(left) - priority(right);
+        })
+        .map((testCase) => {
+          const icon = testCase.status === 'skipped' || testCase.status === 'not-run'
+            ? '⏭️'
+            : '❌';
+          const label = testCase.status === 'not-run'
+            ? 'Not run'
             : testCase.status === 'skipped'
-              ? '⏭️'
-              : testCase.status === 'not-run'
-                ? '⏸️'
-                : '❌';
-        const attempts = testCase.attempts?.length ?? 0;
-        const caseEvidence = evidence.get(`${testCase.project}\0${testCase.name}`);
-        const target = publishedUrl(
-          pagesUrl,
-          caseEvidence?.reportPath,
-          caseEvidence?.stepId,
-        );
-        const preview = publishedUrl(pagesUrl, caseEvidence?.previewPath);
-        const fallback = !target && testCase.status !== 'skipped' ? artifactUrl : null;
-        const caseLabel = target || fallback
-          ? `[${cell(testCase.name)}](${target ?? fallback})`
-          : cell(testCase.name);
-        const evidenceCell = preview && target
-          ? `[![${cell(testCase.name)}](${preview})](${target})`
-          : fallback
-            ? `[report artifact](${fallback})`
-            : '—';
-        return `| ${icon} ${caseLabel} | ${evidenceCell} | ${cell(testCase.project)} | ${cell(testCase.status)} | ${attempts} |`;
-      }),
+              ? 'Skipped'
+              : 'Failed';
+          const reason = testCase.reason ?? evidence.get(`${testCase.project}\0${testCase.name}`)?.reason;
+          return caseRow(testCase, `${icon} ${label}${reason ? `: ${reason}` : ''}`);
+        }),
+      '',
+    );
+  } else if (allPassed) {
+    lines.push(`🎉 All ${passedCases.length} cases passed.`, '');
+  }
+
+  if (reportAvailable) {
+    lines.push(
+      '<details>',
+      `<summary>Appendix: passed cases (${passedCases.length})</summary>`,
+      '',
+      '| Project | Case | Screenshot | Status | Duration |',
+      '|:--|:--|:--|:--|--:|',
+      ...passedCases.map((testCase) => caseRow(testCase, '✅ Passed')),
+      '',
+      '</details>',
       '',
       `Run duration: ${duration(summary?.durationMs)}.`,
       '',
