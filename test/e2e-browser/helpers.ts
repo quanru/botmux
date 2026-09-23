@@ -129,7 +129,20 @@ export function createAgent(page: Page): PlaywrightAgent {
 /** Navigate to the messenger page and wait for it to load. */
 export async function navigateToMessenger(page: Page): Promise<void> {
   await page.goto(getMessengerUrl(), { waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(3000);
+  try {
+    await page.waitForFunction(
+      () =>
+        document.title.includes('消息 - 飞书') &&
+        document.body.innerText.includes('搜索') &&
+        document.body.innerText.includes('消息'),
+      null,
+      { timeout: 30_000 },
+    );
+  } catch {
+    throw new Error(
+      `Feishu Messenger did not finish loading (URL: ${page.url()}, title: ${await page.title()}). Check the saved account selection and authenticated browser state.`,
+    );
+  }
 }
 
 /**
@@ -517,9 +530,8 @@ export async function waitForCodexSideResponse(
 export async function scrollThreadToBottom(
   agent: PlaywrightAgent,
 ): Promise<void> {
-  await agent.aiScroll(
-    '主内容区（页面右侧大块、宽版非窄侧栏）当前正在显示的测试话题',
-    { direction: 'down', scrollType: 'untilBottom' },
+  await agent.aiAct(
+    '滚动主内容区（页面右侧大块、宽版非窄侧栏）当前正在显示的测试话题到底部，显示最新回复和回复输入框',
   );
 }
 
