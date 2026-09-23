@@ -112,7 +112,11 @@ describe('Midscene Pages report', () => {
             caseId: name.toLowerCase().replaceAll(' ', '-'),
             name,
             status: 'failed',
-            attempts: [{ status: 'failed', durationMs: 100, steps: [] }],
+            attempts: [{
+              status: 'failed',
+              durationMs: 100,
+              steps: [{ status: 'failed', error: { message: 'Session Control did not open' } }],
+            }],
           }] }],
         }],
       })}</script>`;
@@ -132,7 +136,11 @@ describe('Midscene Pages report', () => {
     });
 
     expect(manifest.cases).toEqual(expect.arrayContaining([
-      expect.objectContaining({ name: 'Case one', status: 'failed' }),
+      expect.objectContaining({
+        name: 'Case one',
+        status: 'failed',
+        reason: 'Session Control did not open',
+      }),
       expect.objectContaining({ name: 'Case two', status: 'not-run' }),
     ]));
     await expect(readFile(join(output, 'feishu', 'midscene-e2e-20260923035539.html'), 'utf8')).resolves.toContain(

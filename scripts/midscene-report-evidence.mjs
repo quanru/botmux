@@ -147,6 +147,14 @@ export async function reportCases(run, projectName, { html, reportFile }) {
         : steps.find((candidate) => candidate.status === 'failed' && hasAgentEvidence(candidate)) ??
           steps.find((candidate) => candidate.status === 'failed') ??
           steps.at(-1);
+      const error = !passed
+        ? steps.findLast((candidate) => candidate.status === 'failed')?.error ?? attempt?.error
+        : null;
+      const reason = typeof error === 'string'
+        ? error
+        : typeof error?.message === 'string'
+          ? error.message
+          : null;
       const screenshot = screenshotForStep(step, data);
       const extension = screenshot?.extension ?? 'jpg';
       return {
@@ -156,6 +164,7 @@ export async function reportCases(run, projectName, { html, reportFile }) {
         status: passed ? 'success' : testCase.status ?? attempt?.status ?? 'failed',
         durationMs: attempt?.durationMs,
         attempts: testCase.attempts?.length ?? 0,
+        reason,
         stepId: step?.id ?? null,
         previewFile: screenshot
           ? `case-preview-${projectSlug(projectName)}-${testCase.caseId}.${extension}`
